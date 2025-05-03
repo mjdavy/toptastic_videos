@@ -1,0 +1,20 @@
+{
+  "buildFiles": [
+    "/Users/martindavy/Tools/flutter/packages/flutter_tools/gradle/src/main/groovy/CMakeLists.txt"
+  ],
+  "cleanCommandsComponents": [
+    [
+      "/Users/martindavy/Library/Android/sdk/cmake/3.22.1/bin/ninja",
+      "-C",
+      "/Users/martindavy/source/repos/toptastic/toptastic_videos/android/app/.cxx/Debug/o544g534/armeabi-v7a",
+      "clean"
+    ]
+  ],
+  "buildTargetsCommandComponents": [
+    "/Users/martindavy/Library/Android/sdk/cmake/3.22.1/bin/ninja",
+    "-C",
+    "/Users/martindavy/source/repos/toptastic/toptastic_videos/android/app/.cxx/Debug/o544g534/armeabi-v7a",
+    "{LIST_OF_TARGETS_TO_BUILD}"
+  ],
+  "libraries": {}
+}

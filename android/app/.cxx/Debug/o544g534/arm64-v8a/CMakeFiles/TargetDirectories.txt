@@ -1,0 +1,2 @@
+/Users/martindavy/source/repos/toptastic/toptastic_videos/android/app/.cxx/Debug/o544g534/arm64-v8a/CMakeFiles/edit_cache.dir
+/Users/martindavy/source/repos/toptastic/toptastic_videos/android/app/.cxx/Debug/o544g534/arm64-v8a/CMakeFiles/rebuild_cache.dir
