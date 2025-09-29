@@ -1,0 +1,3 @@
+Xcode Cloud heartbeat placeholder.
+This file will be periodically overwritten by the automation in .github/workflows/xcodecloud-heartbeat.yml
+Safe to delete if you retire the heartbeat workflow.

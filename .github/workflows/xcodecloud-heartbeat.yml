@@ -1,0 +1,94 @@
+name: Xcode Cloud Heartbeat
+
+# Purpose: ensure a periodic commit lands on main to trigger Xcode Cloud build/TestFlight
+# without maintaining full Fastlane/TestFlight logic here.
+
+on:
+  schedule:
+    # Daily at 07:15 UTC (adjust as desired)
+    - cron: '15 7 * * *'
+  workflow_dispatch:
+    inputs:
+      max_days_idle:
+        description: 'Only create heartbeat commit if last commit older than this many days'
+        required: false
+        default: '60'
+      force:
+        description: 'Force a heartbeat commit regardless of last commit age'
+        required: false
+        default: 'false'
+
+jobs:
+  heartbeat:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write  # Needed to push commit
+    env:
+      MAX_DAYS_IDLE: ${{ github.event.inputs.max_days_idle || '60' }}
+      FORCE: ${{ github.event.inputs.force || 'false' }}
+      BRANCH: main
+      MARKER_FILE: xcodecloud_heartbeat.txt
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.BRANCH }}
+
+      - name: Determine last commit age
+        id: age
+        run: |
+          last_commit_iso=$(git log -1 --format=%cI || echo '')
+          if [ -z "$last_commit_iso" ]; then
+            echo "no_commits=true" >> $GITHUB_OUTPUT
+            echo "age_days=999" >> $GITHUB_OUTPUT
+          else
+            now_epoch=$(date -u +%s)
+            commit_epoch=$(date -u -d "$last_commit_iso" +%s)
+            diff_sec=$(( now_epoch - commit_epoch ))
+            # Compute age in days to two decimals using awk (avoid heredoc complexity in YAML)
+            age_days=$(awk -v diff=$diff_sec 'BEGIN { printf "%.2f", diff/86400 }')
+            echo "age_days=$age_days" >> $GITHUB_OUTPUT
+            echo "no_commits=false" >> $GITHUB_OUTPUT
+          fi
+          echo "Last commit age (days): $age_days"
+
+      - name: Decide whether to create heartbeat commit
+        id: decide
+        run: |
+          max_days=${MAX_DAYS_IDLE}
+          force_flag=$(echo "$FORCE" | tr '[:upper:]' '[:lower:]')
+          raw_age="${{ steps.age.outputs.age_days }}"
+          age=$(printf '%.0f' $(echo "$raw_age"))
+          if [ "$force_flag" = "true" ]; then
+            echo "will_commit=true" >> $GITHUB_OUTPUT
+            echo "reason=force" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          if [ $age -ge $max_days ]; then
+            echo "will_commit=true" >> $GITHUB_OUTPUT
+            echo "reason=age_${age}_ge_${max_days}" >> $GITHUB_OUTPUT
+          else
+            echo "will_commit=false" >> $GITHUB_OUTPUT
+            echo "reason=age_${age}_lt_${max_days}" >> $GITHUB_OUTPUT
+          fi
+          echo "Decision: $(cat $GITHUB_OUTPUT)"
+
+      - name: Create heartbeat commit
+        if: steps.decide.outputs.will_commit == 'true'
+        run: |
+          ts=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
+          {
+            echo "Xcode Cloud heartbeat.";
+            echo "Last refresh: $ts";
+            echo "Reason: ${{ steps.decide.outputs.reason }}";
+            echo "This file is safe to overwrite; its sole purpose is to trigger Xcode Cloud.";
+          } > "$MARKER_FILE"
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
+          git add "$MARKER_FILE"
+          git commit -m "chore: xcode cloud heartbeat ($ts)" || echo "Nothing to commit"
+          git push origin "$BRANCH"
+
+      - name: Summary
+        run: |
+          echo "Heartbeat action complete. Commit created? ${{ steps.decide.outputs.will_commit }}. Reason: ${{ steps.decide.outputs.reason }}"
