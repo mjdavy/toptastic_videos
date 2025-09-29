@@ -7,17 +7,36 @@ on:
     branches: [ main ]
   workflow_dispatch:
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  build-test:
-    runs-on: macos-latest
+  lint-test:
+    name: Analyze & Test (matrix)
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        flutter-channel: [stable]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Cache Flutter pub
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ runner.tool_cache }}/flutter
+            ~/.pub-cache
+          key: ${{ runner.os }}-flutter-${{ matrix.flutter-channel }}-${{ hashFiles('**/pubspec.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-flutter-${{ matrix.flutter-channel }}-
+
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
-          channel: stable
+          channel: ${{ matrix.flutter-channel }}
 
       - name: Flutter version
         run: flutter --version
@@ -28,12 +47,41 @@ jobs:
       - name: Analyze
         run: flutter analyze
 
-      - name: Run tests
-        run: flutter test --no-pub
+      - name: Run tests (with coverage)
+        run: flutter test --coverage --no-pub
+
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-lcov
+          path: coverage/lcov.info
+          if-no-files-found: warn
+
+  build:
+    name: Platform Builds
+    needs: lint-test
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Install dependencies
+        run: flutter pub get
 
       - name: Build iOS (no codesign)
-        run: |
-          flutter build ios --no-codesign
+        run: flutter build ios --no-codesign
 
-      - name: Build Android APK
+      - name: Build Android APK (debug)
         run: flutter build apk --debug
+
+      - name: Upload Android APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-apk-debug
+          path: build/app/outputs/flutter-apk/app-debug.apk
+          if-no-files-found: warn
