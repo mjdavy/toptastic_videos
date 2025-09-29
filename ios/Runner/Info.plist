@@ -24,6 +24,21 @@
 	<string>????</string>
 	<key>CFBundleVersion</key>
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
+	<key>MinimumOSVersion</key>
+	<string>12.0</string>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
+	<!-- Required for iOS 14+ if the Flutter/Dart VM publishes a Bonjour (mDNS) service for debugging -->
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_dartobservatory._tcp</string>
+	</array>
+	<!-- User-facing reason for local network discovery prompt -->
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>This app uses the local network to discover the Dart development service while debugging and to connect to local media services.</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>UILaunchStoryboardName</key>
