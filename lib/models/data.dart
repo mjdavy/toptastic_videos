@@ -2,6 +2,8 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:async';
 import 'package:crypto/crypto.dart';
+import 'package:csv/csv.dart';
+import 'package:flutter/foundation.dart' show kIsWeb; // for web detection
 import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 import 'package:path/path.dart';
@@ -17,6 +19,9 @@ const String _baseDataRoot = 'https://mjdavy.github.io/toptastic-bot';
 const String _songsDbUrl = '$_baseDataRoot/songs.db';
 const String _songsShaUrl = '$_baseDataRoot/songs.sha256';
 const String _timestampUrl = '$_baseDataRoot/timestamp.txt';
+// CSV endpoints (lighter weight for web where sqlite is limited)
+const String _songsCsvUrl = '$_baseDataRoot/songs.csv';
+const String _latestPlaylistCsvUrl = '$_baseDataRoot/latest_playlist.csv';
 
 // Legacy constant kept for backward compatibility if referenced elsewhere
 // (Will be removed in a later cleanup)
@@ -40,7 +45,9 @@ class FetchSongsException implements Exception {
 
 /// Migration: convert old 'lastDownloaded' heuristic to new timestamp fields.
 Future<void> _migrateLegacyPrefsIfNeeded(SharedPreferences prefs) async {
-  if (prefs.getString('lastDownloadedTimestamp') != null) return; // Already migrated
+  if (prefs.getString('lastDownloadedTimestamp') != null) {
+    return; // Already migrated
+  }
   final legacy = prefs.getString('lastDownloaded');
   if (legacy != null) {
     // We can't reconstruct exact remote timestamp; trigger a refetch by clearing.
@@ -60,7 +67,8 @@ Future<void> updateLastDownloaded({bool reset = false}) async {
     await prefs.remove('lastDownloadedTimestamp');
     await prefs.remove('lastDbSha256');
   } else {
-    prefs.setString('lastDownloadedTimestamp', DateTime.now().toIso8601String());
+    prefs.setString(
+        'lastDownloadedTimestamp', DateTime.now().toIso8601String());
   }
 }
 
@@ -142,7 +150,9 @@ Future<bool> ensureLatestDatabase() async {
     await File(tempPath).rename(finalPath);
   } catch (e) {
     logger.e('Failed to write database: $e');
-    try { await File(tempPath).delete(); } catch (_) {}
+    try {
+      await File(tempPath).delete();
+    } catch (_) {}
     return false;
   }
 
@@ -161,16 +171,160 @@ Future<List<Song>> fetchSongs(DateTime date) async {
 }
 
 Future<List<Song>> fetchSongsOffline(DateTime date) async {
+  // On web, fall back to CSV since sqlite (sqflite) is not supported in a static web build.
+  if (kIsWeb) {
+    return _fetchSongsWebCsv(date);
+  }
   final String formattedDate = DateFormat('yyyyMMdd').format(date);
   final dbDir = await getDatabasesPath();
   final dbPath = join(dbDir, 'database.db');
-
   try {
     await ensureLatestDatabase(); // Update if remote changed
     return await getSongsFromDB(dbPath, formattedDate);
   } catch (e) {
     throw FetchSongsException('Data error: $e');
   }
+}
+
+/// Web CSV bootstrap: we only have the latest playlist CSV with positions etc.
+/// If user requests a different date than latest, we still return latest (until
+/// historical CSV snapshots are provided). We rely on timestamp.txt for cache.
+Future<List<Song>> _fetchSongsWebCsv(DateTime requestedDate) async {
+  final prefs = await SharedPreferences.getInstance();
+  String? cachedTs = prefs.getString('webCsvTimestamp');
+  String? cachedJson = prefs.getString('webCsvSongs');
+
+  String remoteTs = cachedTs ?? '';
+  try {
+    final tsResp = await http.get(Uri.parse(_timestampUrl));
+    if (tsResp.statusCode == 200) {
+      remoteTs = tsResp.body.trim();
+    }
+  } catch (e) {
+    logger.w('Web CSV: timestamp fetch failed: $e');
+  }
+
+  // If we have cached data for this timestamp, use it.
+  if (cachedTs != null && cachedTs == remoteTs && cachedJson != null) {
+    try {
+      final list = json.decode(cachedJson) as List;
+      return list.map((m) => Song.fromJson(m as Map<String, dynamic>)).toList();
+    } catch (e) {
+      logger.w('Web CSV cache decode failed, will refetch: $e');
+    }
+  }
+
+  // Fetch latest playlist CSV (smaller). If it fails, fallback to full songs CSV.
+  http.Response csvResp;
+  try {
+    csvResp = await http.get(Uri.parse(_latestPlaylistCsvUrl));
+    if (csvResp.statusCode != 200) {
+      throw Exception('latest playlist csv status ${csvResp.statusCode}');
+    }
+  } catch (e) {
+    logger.w('Latest playlist CSV fetch failed ($e), trying full songs.csv');
+    try {
+      csvResp = await http.get(Uri.parse(_songsCsvUrl));
+      if (csvResp.statusCode != 200) {
+        throw Exception('songs.csv status ${csvResp.statusCode}');
+      }
+    } catch (e2) {
+      throw FetchSongsException('CSV fetch failed: $e2');
+    }
+  }
+
+  final csvContent = csvResp.body;
+  List<List<dynamic>> rows;
+  try {
+    rows = const CsvToListConverter(eol: '\n', shouldParseNumbers: false)
+        .convert(csvContent);
+  } catch (e) {
+    throw FetchSongsException('CSV parse error: $e');
+  }
+  if (rows.isEmpty) return [];
+
+  // Assume header row with names: id,artist,song_name,video_id,position,lw,peak,weeks,is_new,is_reentry
+  final header = rows.first.map((h) => h.toString().trim()).toList();
+  final dataRows = rows.skip(1);
+
+  int colIndex(String name) => header.indexOf(name);
+  final idxId = colIndex('id');
+  final idxArtist = colIndex('artist');
+  final idxSongName = colIndex('song_name');
+  final idxVideo = colIndex('video_id');
+  final idxPos = colIndex('position');
+  final idxLw = colIndex('lw');
+  final idxPeak = colIndex('peak');
+  final idxWeeks = colIndex('weeks');
+  final idxIsNew = colIndex('is_new');
+  final idxIsRe = colIndex('is_reentry');
+
+  bool indicesValid = [
+    idxId,
+    idxArtist,
+    idxSongName,
+    idxPos,
+    idxLw,
+    idxPeak,
+    idxWeeks
+  ].every((i) => i >= 0);
+  if (!indicesValid) {
+    throw FetchSongsException('CSV header missing required columns: $header');
+  }
+
+  final songs = <Song>[];
+  for (final row in dataRows) {
+    if (row.isEmpty) continue;
+    try {
+      int parseInt(dynamic v) => int.tryParse(v.toString().trim()) ?? 0;
+      bool parseBool(dynamic v) {
+        final s = v.toString().trim().toLowerCase();
+        return s == '1' || s == 'true' || s == 'y';
+      }
+
+      final song = Song(
+        id: parseInt(row[idxId]),
+        artist: idxArtist >= 0 ? row[idxArtist].toString() : '',
+        songName: idxSongName >= 0 ? row[idxSongName].toString() : '',
+        position: idxPos >= 0 ? parseInt(row[idxPos]) : 0,
+        lw: idxLw >= 0 ? parseInt(row[idxLw]) : 0,
+        peak: idxPeak >= 0 ? parseInt(row[idxPeak]) : 0,
+        weeks: idxWeeks >= 0 ? parseInt(row[idxWeeks]) : 0,
+        isNew: idxIsNew >= 0 ? parseBool(row[idxIsNew]) : false,
+        isReentry: idxIsRe >= 0 ? parseBool(row[idxIsRe]) : false,
+        videoId: idxVideo >= 0 ? row[idxVideo].toString() : '',
+      );
+      songs.add(song);
+    } catch (e) {
+      logger.w('Skipping malformed row: $row ($e)');
+    }
+  }
+
+  // Persist cache
+  try {
+    final serialized = json.encode(songs
+        .map((s) => {
+              'id': s.id,
+              'artist': s.artist,
+              'song_name': s.songName,
+              'position': s.position,
+              'lw': s.lw,
+              'peak': s.peak,
+              'weeks': s.weeks,
+              'is_new': s.isNew,
+              'is_reentry': s.isReentry,
+              'video_id': s.videoId,
+            })
+        .toList());
+    if (remoteTs.isNotEmpty) {
+      await prefs.setString('webCsvTimestamp', remoteTs);
+    }
+    await prefs.setString('webCsvSongs', serialized);
+  } catch (e) {
+    logger.w('Failed to cache web CSV songs: $e');
+  }
+
+  return songs;
 }
 
 Future<List<Song>> getSongsFromDB(String dbPath, String formattedDate) async {
@@ -209,7 +363,8 @@ Future<List<Song>> fetchSongsOnline(DateTime date) async {
       final jsonResponse = json.decode(response.body) as List;
       return jsonResponse.map((item) => Song.fromJson(item)).toList();
     } else {
-      throw FetchSongsException('Error fetching songs. Status code: ${response.statusCode}');
+      throw FetchSongsException(
+          'Error fetching songs. Status code: ${response.statusCode}');
     }
   } catch (e) {
     logger.i('Error fetching songs: $e');

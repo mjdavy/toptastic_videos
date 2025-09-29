@@ -4,7 +4,6 @@ This repository is now the **canonical** Flutter client for TopTastic Videos.
 
 Recent improvements were merged here from the former `toptastic-client` repo:
 
-
 * Timestamp + SHA256 verified chart database updates (atomic replace, integrity check)
 * Preferences migration (legacy `lastDownloaded` key auto-migrated to new timestamp scheme)
 * Dependency refresh (youtube_explode_dart, sqflite, shared_preferences, provider, logger, etc.)
@@ -104,6 +103,7 @@ Settings stored keys:
 ---
 
 ## Repository Hygiene
+
 If `toptastic-client` is still active in remotes/CI:
 
 1. Merge any outstanding unique changes (none expected beyond what is already here)
@@ -122,6 +122,31 @@ If `toptastic-client` is still active in remotes/CI:
 
 ---
 
-## License
-Private / Internal (adjust if you intend to publish).
+## Web Build Considerations (CSV Fallback)
 
+The Flutter web build runs as a fully static site. The `sqflite` plugin used for offline SQLite access on mobile/desktop is **not** available in that context (there are emerging WASM-backed sqlite solutions, but they are still experimental for our needs). To preserve a fast initial load on web we now:
+
+1. Fetch `latest_playlist.csv` (falls back to `songs.csv` if that fails) hosted at the GitHub Pages data root.
+2. Parse it into an in‑memory list of `Song` objects (mirroring the subset of columns used by the UI).
+3. Cache the parsed JSON plus the `timestamp.txt` value in `SharedPreferences` keys: `webCsvSongs`, `webCsvTimestamp`.
+4. Reuse the cache if the remote timestamp is unchanged, minimizing network round trips.
+
+Limitations:
+
+* Historical playlist selection on web currently returns the latest playlist (until we publish dated CSV snapshots).
+* DB-specific queries (anything beyond the columns in the CSV) are not available on web.
+* Integrity hash (SHA) is only enforced for the SQLite DB pathway; CSV relies on HTTPS + timestamp freshness.
+
+Future enhancements:
+
+* Provide per-date CSV snapshots (e.g. `playlists/YYYYMMDD.csv`) to enable full history browsing on web.
+* Add a lightweight signature or checksum file for CSV assets.
+* Consider adopting a stable, production-ready WASM SQLite solution when it matures, reusing the existing `ensureLatestDatabase` logic.
+
+---
+
+---
+
+## License
+
+Private / Internal (adjust if you intend to publish).
