@@ -411,3 +411,72 @@ Future<int> updateVideos(List<Song> songs) async {
   }
   return 0;
 }
+
+/// Search result containing song info and the date it appeared on chart
+class SongSearchResult {
+  final Song song;
+  final String chartDate;
+
+  SongSearchResult({required this.song, required this.chartDate});
+}
+
+/// Search for songs across all dates by artist or song name
+/// Returns only the best chart position (lowest position number) for each song
+Future<List<SongSearchResult>> searchSongsAllDates(String query) async {
+  if (query.trim().isEmpty) {
+    return [];
+  }
+
+  // On web, searching all dates is not supported (only have latest playlist)
+  if (kIsWeb) {
+    return [];
+  }
+
+  final dbDir = await getDatabasesPath();
+  final dbPath = join(dbDir, 'database.db');
+
+  try {
+    await ensureLatestDatabase();
+
+    // First, find matching songs and their best position using a more efficient query
+    const searchQuery = """
+      SELECT 
+        s.id,
+        s.song_name, 
+        s.artist, 
+        s.video_id,
+        MIN(ps.position) as position,
+        ps.lw, 
+        ps.peak, 
+        ps.weeks, 
+        ps.is_new, 
+        ps.is_reentry,
+        p.date as chart_date
+      FROM 
+        songs s
+        JOIN playlist_songs ps ON ps.song_id = s.id
+        JOIN playlists p ON p.id = ps.playlist_id
+      WHERE 
+        LOWER(s.song_name) LIKE ? OR LOWER(s.artist) LIKE ?
+      GROUP BY s.id
+      ORDER BY 
+        MIN(ps.position) ASC
+      LIMIT 100
+    """;
+
+    final db = await openDatabase(dbPath, version: 1, readOnly: true);
+    final searchPattern = '%${query.toLowerCase()}%';
+    final result =
+        await db.rawQuery(searchQuery, [searchPattern, searchPattern]);
+    await db.close();
+
+    return result.map((item) {
+      final song = Song.fromJson(item);
+      final chartDate = item['chart_date']?.toString() ?? '';
+      return SongSearchResult(song: song, chartDate: chartDate);
+    }).toList();
+  } catch (e) {
+    logger.e('Error searching songs: $e');
+    return [];
+  }
+}

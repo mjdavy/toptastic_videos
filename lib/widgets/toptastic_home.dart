@@ -6,6 +6,7 @@ import '../models/data.dart';
 import '../models/utility.dart';
 import '../widgets/settings_page.dart';
 import '../widgets/song_list.dart';
+import '../widgets/song_search_delegate.dart';
 import '../widgets/youtube_playlist_screen.dart';
 
 class TopTasticHome extends StatefulWidget {
@@ -139,6 +140,18 @@ class _TopTasticHomeState extends State<TopTasticHome> {
     );
   }
 
+  Widget _buildSearchIconButton() {
+    return IconButton(
+      icon: const Icon(Icons.search),
+      onPressed: () {
+        showSearch(
+          context: context,
+          delegate: SongSearchDelegate(),
+        );
+      },
+    );
+  }
+
   Widget _buildSettingsIconButton(BuildContext context) {
     return IconButton(
       icon: const Icon(Icons.settings),
@@ -155,11 +168,12 @@ class _TopTasticHomeState extends State<TopTasticHome> {
 
   List<Widget> _buildAppBarActions(BuildContext context) {
     return [
+      _buildSearchIconButton(),
       _buildPlaylistIconButton(),
       _buildCalendarIconButton(),
       _buildFavoriteFilterIconButton(),
       _buildSortIconButton(),
-      _buildSettingsIconButton(context),
+      //_buildSettingsIconButton(context),
     ];
   }
 
