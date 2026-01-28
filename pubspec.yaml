@@ -47,7 +47,7 @@ dependencies:
   url_launcher: ^6.3.2
   youtube_explode_dart: ^2.5.2
   settings_ui: ^2.0.2
-  crypto: ^3.0.6
+  crypto: ^3.0.7
   csv: ^6.0.0
 
 dev_dependencies:
