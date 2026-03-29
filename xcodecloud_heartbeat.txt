@@ -1,3 +1,4 @@
-Xcode Cloud heartbeat placeholder.
-This file will be periodically overwritten by the automation in .github/workflows/xcodecloud-heartbeat.yml
-Safe to delete if you retire the heartbeat workflow.
+Xcode Cloud heartbeat.
+Last refresh: 2026-03-29T07:36:13Z
+Reason: age_60_ge_60
+This file is safe to overwrite; its sole purpose is to trigger Xcode Cloud.
