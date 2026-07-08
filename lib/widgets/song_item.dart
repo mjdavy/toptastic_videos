@@ -28,14 +28,16 @@ class _SongItemState extends State<SongItem> {
         trailing: widget.song.videoId.isEmpty
             ? null
             : YoutubeThumbnail(song: widget.song, isFavorite: widget.isFavorite),
-        onTap: () {
-          Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => YoutubePlayerScreen(song: widget.song),
-          ),
-        );
-        },
+        onTap: widget.song.videoId.isEmpty
+            ? null
+            : () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => YoutubePlayerScreen(song: widget.song),
+                  ),
+                );
+              },
       ),
     );
   }
