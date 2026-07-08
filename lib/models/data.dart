@@ -236,8 +236,7 @@ Future<List<Song>> _fetchSongsWebCsv(DateTime requestedDate) async {
   final csvContent = csvResp.body;
   List<List<dynamic>> rows;
   try {
-    rows = const CsvToListConverter(eol: '\n', shouldParseNumbers: false)
-        .convert(csvContent);
+    rows = Csv().decode(csvContent);
   } catch (e) {
     throw FetchSongsException('CSV parse error: $e');
   }

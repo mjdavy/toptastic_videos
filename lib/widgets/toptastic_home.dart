@@ -4,7 +4,6 @@ import 'package:intl/intl.dart';
 import '../models/song.dart';
 import '../models/data.dart';
 import '../models/utility.dart';
-import '../widgets/settings_page.dart';
 import '../widgets/song_list.dart';
 import '../widgets/song_search_delegate.dart';
 import '../widgets/youtube_playlist_screen.dart';
@@ -148,20 +147,6 @@ class _TopTasticHomeState extends State<TopTasticHome> {
           context: context,
           delegate: SongSearchDelegate(),
         );
-      },
-    );
-  }
-
-  Widget _buildSettingsIconButton(BuildContext context) {
-    return IconButton(
-      icon: const Icon(Icons.settings),
-      onPressed: () {
-        Navigator.push(
-          context,
-          MaterialPageRoute(builder: (context) => const SettingsPage()),
-        ).then((_) => setState(() {
-              _songsFuture = _loadSongs(_selectedDate);
-            }));
       },
     );
   }
